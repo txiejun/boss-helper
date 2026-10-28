@@ -2,6 +2,7 @@ import type { ContextLogger } from 'devlog-ui'
 import { shallowRef, ref } from 'vue'
 
 import { PipelineCacheManager } from '@/composables/usePipelineCache'
+import { isBatchFatal, uncertain } from '@/reliability/core'
 import type { PipelineCacheItem, ProcessorType } from '@/types/pipelineCache'
 
 import type { HelperContext } from '../useHelper'
@@ -122,9 +123,15 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
     const _resolvedHandlers = new Map<string, any>()
     const errors = new Map<string, any>()
 
-    const rawTasks = items.flatMap((i) =>
-      typeof i === 'function' ? { ...i() } : Array.isArray(i) ? i : { ...i },
-    )
+    const rawTasks = items.flatMap((item) => {
+      const definitions =
+        typeof item === 'function' ? [item()] : Array.isArray(item) ? item : [item]
+      return definitions.map((task) => ({
+        ...task,
+        before: [...task.before],
+        after: [...task.after],
+      }))
+    })
     const requiredIds = new Set<string>()
     for (const task of rawTasks) {
       try {
@@ -141,6 +148,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           _resolvedHandlers.set(task.id, result.fn)
           if (result.before) task.before.push(...result.before)
           if (result.after) task.after.push(...result.after)
+          if (result.onEnd) task.onEnd = result.onEnd
         }
       } catch (e) {
         errors.set(`${task.id}::${task.label}`, e)
@@ -157,9 +165,13 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       if (stack.has(id)) throw new Error(`Cycle: ${id}`)
       if (visited.has(id)) return
       const t = taskMap.get(id)
-      if (!t || !requiredIds.has(id)) return
+      if (!t) throw new Error(`工作流依赖不存在：${id}`)
+      if (!requiredIds.has(id)) return
       stack.add(id)
-      t.deps.forEach(sort)
+      t.deps.forEach((dep) => {
+        requiredIds.add(dep)
+        sort(dep)
+      })
       stack.delete(id)
       visited.add(id)
       _pipeline.push(t)
@@ -198,10 +210,14 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       .join('\n')
     if (errMsg) {
       logger.error('工作流构建错误, 请检查配置:', errMsg)
-      alert(`工作流构建错误, 请检查配置:\n${errMsg}`)
       errorMessage.value = errMsg
+      throw new Error(`工作流构建失败：${errMsg}`)
     } else {
-      logger.debug('Pipeline rebuilt', jsonClone(pipeline.value))
+      errorMessage.value = null
+      logger.debug(
+        'Pipeline rebuilt',
+        pipeline.value.map((t) => t.id),
+      )
     }
   }
 
@@ -281,7 +297,10 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       for (const t of pipeline.value) {
         let res: void | TaskResult = undefined
         try {
-          if (isStop()) break
+          if (isStop()) {
+            skipPipeline = true
+            break
+          }
           helper.jobResultMaps.set(data.jobData.key, {
             status: t.state || 'running',
             msg: t.stateMsg || '运行中',
@@ -295,7 +314,10 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
               break
             }
           }
-          if (isStop()) break
+          if (isStop()) {
+            skipPipeline = true
+            break
+          }
         } catch (e) {
           res = {
             isSkip: true,
@@ -303,7 +325,12 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
             reason: `任务${t.label ?? t.id}执行失败: ${e instanceof Error ? e.message : JSON.stringify(e)}`,
             msg: `报错/${t.label ?? t.id}`,
           }
-          log.error(`任务${t.label ?? t.id}执行失败`, e)
+          log.error(`任务${t.label ?? t.id}执行失败`, errorHandle(e))
+          if (isBatchFatal(e) || uncertain(e) || helper.signal.aborted) {
+            status.value = 'stop'
+            errorMessage.value = errorHandle(e)
+            helper.stop()
+          }
           skipPipeline = true
           errorLog = true
           break
@@ -321,12 +348,12 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           }
         }
       }
-      if (!skipPipeline) {
+      if (!skipPipeline && !isStop()) {
         helper.jobResultMaps.set(data.jobData.key, {
           status: 'success',
-          msg: '投递成功',
+          msg: '沟通流程已执行，请查看动作台账',
         })
-        helper.statistics.todayData.value.success++
+        await helper.refreshDeliveryStatistics()
       } else if (!errorLog) {
         const r = helper.jobResultMaps.get(data.jobData.key)
         log.warn(`投递过滤: ${data.jobData.jobName}`, r?.msg, r?.reason)
@@ -338,14 +365,17 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
   }
 
   const executeAll = async (rawDataMap: Map<string, T>) => {
-    await rebuild()
-
+    if (status.value === 'running') return
     let stepMsg = ''
     errorMessage.value = null
-    status.value = 'running'
     const isStop = () => status.value === 'stop'
 
     try {
+      status.value = 'running'
+      await helper.models.initModel()
+      await rebuild()
+      await helper.beginRun()
+      await helper.refreshDeliveryStatistics()
       while (status.value === 'running') {
         if (helper.jobList.value.length === 0) {
           stepMsg = '没有职位可投递'
@@ -380,7 +410,9 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
           }
           helper.jobMaps.set(jobData.key, data)
           helper.currentJob.value = jobData.key
+          if (isStop()) break
           await execute(data, index)
+          if (isStop()) break
           if (
             helper.statistics.todayData.value.success >= helper.conf.formData.deliveryLimit.value
           ) {
@@ -404,6 +436,8 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       logger.error('投递未知错误', e)
       stepMsg = `未知错误: ${e instanceof Error ? e.message : JSON.stringify(e)}`
     } finally {
+      await helper.endRun()
+      stepMsg = errorMessage.value ?? stepMsg
       if (!stepMsg) {
         stepMsg = '投递结束'
         status.value = 'pending'
@@ -411,7 +445,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
         status.value = 'error'
         errorMessage.value = stepMsg
       }
-      void helper.notification(stepMsg)
+      void helper.notification(stepMsg).catch(() => {})
 
       const now = new Date()
       for (const t of pipeline.value) {
@@ -431,6 +465,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
 
   const stop = () => (status.value = 'stop')
   const reset = () => {
+    if (status.value === 'running') return
     status.value = 'pending'
     helper.jobList.value.forEach((job) => {
       const v = helper.jobResultMaps.get(job.key)

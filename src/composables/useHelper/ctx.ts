@@ -10,6 +10,10 @@ import type { BossHelperError } from '@/composables/useApplying/deliverError'
 import type { TaskResult, WorkflowData } from '@/composables/useApplying/type'
 import { useModel } from '@/composables/useModel'
 import { ChatModel } from '@/composables/useModel'
+import { counter } from '@/message'
+import { pageCall } from '@/platform/bridge'
+import { contactCount } from '@/reliability/core'
+import type { ActionRecord } from '@/reliability/core'
 import type { FormDataInput } from '@/types/formData'
 
 import type { NetConf } from './netConf'
@@ -40,6 +44,75 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
     value: Log[]
   }
   pendingMessages: Ref<string | undefined>
+  controller = new AbortController()
+  mountUi!: (root: HTMLElement) => () => void
+  unmountUi?: () => void
+  runId = ''
+  runAccount = ''
+  private heartbeatTimer?: ReturnType<typeof setInterval>
+  get signal() {
+    return this.controller.signal
+  }
+  assertActive() {
+    this.signal.throwIfAborted()
+    if (!this.runId) throw new Error('投递任务尚未启动')
+  }
+  async beginRun() {
+    if (this.runId) throw new Error('已有投递任务运行')
+    await this.models.initModel()
+    this.runAccount = this.uid
+    this.runId = await counter.acquire(this.runAccount)
+    this.controller = new AbortController()
+    this.heartbeatTimer = setInterval(() => {
+      void counter.heartbeat(this.runAccount, this.runId).catch(() => this.stop())
+    }, 5000)
+    await pageCall('begin', { account: this.runAccount })
+  }
+  async endRun() {
+    clearInterval(this.heartbeatTimer)
+    this.chatModel.cancel()
+    await pageCall('cancel').catch(() => {})
+    if (this.runId) await counter.release(this.runAccount, this.runId).catch(() => {})
+    this.runId = ''
+    await this.refreshDeliveryStatistics().catch(() => {})
+  }
+  async beginAction(data: WorkflowData<T, S>, stage: ActionRecord['stage']) {
+    this.assertActive()
+    if (this.uid !== this.runAccount)
+      throw Object.assign(new Error('账号已改变，任务已停止'), { fatal: true })
+    const conf = this.conf.formData
+    const record = await counter.actionBegin(
+      {
+        runId: this.runId,
+        account: this.runAccount,
+        jobId: data.jobData.key,
+        hrId: data.jobData.hrId,
+        companyId: data.jobData.companyId,
+        stage,
+      },
+      conf.deliveryLimit.value,
+      conf.sameHrFilter.value ? (conf.sameHrFilter.expire ?? 0) : -1,
+      conf.sameCompanyFilter.value ? (conf.sameCompanyFilter.expire ?? 0) : -1,
+    )
+    this.assertActive()
+    return record
+  }
+  async refreshDeliveryStatistics() {
+    const entries = await counter.journal(this.uid)
+    await this.statistics.updateStatistics()
+    this.statistics.todayData.value.success = contactCount(entries, this.uid)
+    this.statistics.todayData.value.messagesSubmitted = entries.filter(
+      (a) =>
+        a.stage === 'message' &&
+        a.status === 'submitted' &&
+        getCurDay(new Date(a.createdAt)) === getCurDay(),
+    ).length
+  }
+  disposeTimers() {
+    clearInterval(this.netConfTimer ?? undefined)
+    this.netConfTimer = null
+  }
+
   constructor() {
     this.pendingMessages = ref()
     this.conf = useConf()
@@ -96,15 +169,21 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   abstract get label(): string
 
   initNetConf() {
-    void initNetConf().then((data) => {
-      this.netConf.value = data
-    })
+    void initNetConf()
+      .then((data) => {
+        this.netConf.value = data
+      })
+      .catch(() => {
+        /* Version metadata must not block the application. */
+      })
     if (!this.netConfTimer) {
       this.netConfTimer = setInterval(
         () => {
-          void initNetConf().then((data) => {
-            this.netConf.value = data
-          })
+          void initNetConf()
+            .then((data) => {
+              this.netConf.value = data
+            })
+            .catch(() => {})
         },
         1000 * 60 * 5,
       )
@@ -112,6 +191,9 @@ export abstract class HelperContext<C extends HelperContext<C, T, S>, T, S> {
   }
 
   stop() {
+    this.controller.abort(new DOMException('任务已停止', 'AbortError'))
+    this.chatModel.cancel()
+    void pageCall('cancel').catch(() => {})
     this.workflow?.stop()
   }
   reset() {

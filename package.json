@@ -13,7 +13,7 @@
     "dev:edge": "wxt -b edge",
     "dev:firefox": "wxt -b firefox --mv3",
     "postinstall": "wxt prepare",
-    "check": "vue-tsc --noEmit",
+    "check": "run-s check:logger-types check:app",
     "build": "run-p build:chrome build:firefox build:edge",
     "build:chrome": "wxt build -b chrome",
     "build:firefox": "wxt build -b firefox --mv3",
@@ -26,7 +26,11 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "bun test ./tests",
+    "check:logger-types": "tsc -p packages/devlog-ui/tsconfig.json --declaration --emitDeclarationOnly --noEmit false --declarationMap false --outDir packages/devlog-ui/dist",
+    "check:app": "vue-tsc --noEmit",
+    "test:browser": "node scripts/smoke-extension.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.36",
@@ -53,6 +57,7 @@
     "@vue/tsconfig": "^0.9.1",
     "@vueuse/core": "^14.4.0",
     "@wxt-dev/module-vue": "^1.0.3",
+    "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
     "npm-run-all": "^4.1.5",
     "openapi-typescript": "^7.13.0",
@@ -63,7 +68,7 @@
     "protobufjs": "^8.7.2",
     "sass": "^1.99.0",
     "ts-proto": "^2.12.0",
-    "typescript": "^7.0.2",
+    "typescript": "5.9.3",
     "uid": "^2.0.2",
     "vite-plugin-tailwind-shadowdom": "^1.1.1",
     "vue-tsc": "^3.3.9",

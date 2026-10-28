@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
 
-import LLMModelManage from '@/components/AI/LLMModelManage.vue'
 import LLMPromptEdit from '@/components/AI/LLMPromptEdit.vue'
 import FormSwitch from '@/components/Tabs/ConfigItem/Form/FormSwitch.vue'
 import { formInfoData, useConf } from '@/composables/conf'
 import { useHelper } from '@/composables/useHelper'
+import { backgroundCall } from '@/message/contentScript'
 import type { FormDataAi } from '@/types/formData'
 
 const helper = useHelper()
@@ -73,19 +73,9 @@ function change(v: Partial<FormDataAi>) {
     /> -->
     </div>
     <div>
-      <LLMModelManage>
-        <UButton
-          color="primary"
-          data-help="配置需要使用的LLM大模型"
-          @click="
-            () => {
-              aiConfBoxShow = true
-            }
-          "
-        >
-          模型配置
-        </UButton>
-      </LLMModelManage>
+      <UButton color="primary" @click="backgroundCall('openModelSettings')"
+        >模型配置（扩展页面）</UButton
+      >
     </div>
 
     <LLMPromptEdit

@@ -1,11 +1,17 @@
 export function exportJson(data: object, name: string) {
-  const blob = new Blob([JSON.stringify(data)], {
+  const sanitized = JSON.parse(
+    JSON.stringify(data, (key, value) =>
+      /^(api[_-]?key|authorization|cookie|token|extra_headers)$/i.test(key) ? '[REDACTED]' : value,
+    ),
+  )
+  const blob = new Blob([JSON.stringify(sanitized)], {
     type: 'application/json',
   })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = `${name}.json`
   link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 0)
 }
 
 export async function importJson<T = any>(): Promise<T> {

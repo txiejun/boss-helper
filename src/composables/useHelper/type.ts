@@ -6,6 +6,9 @@ import type { amapDistance, amapGeocode } from '@/utils/amap'
 
 export type JobBaseData = {
   key: string
+  jobId?: string
+  hrId?: string
+  companyId?: string
   link?: string
   /** 职位名称，例如：'前端开发工程师' */
   jobName: string

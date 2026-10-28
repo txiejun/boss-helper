@@ -1,4 +1,5 @@
 import { useConf } from '@/composables/conf'
+import { counter } from '@/message'
 
 export interface AmapError {
   status: string
@@ -51,9 +52,12 @@ export async function amapGeocode(
   address: string,
 ): Promise<AmapGeocode['geocodes'][number] | undefined> {
   const { formData } = useConf()
-  const res = (await fetch(
-    `https://restapi.amap.com/v3/geocode/geo?address=${address}&output=JSON&Key=${formData.amap.key}`,
-  ).then((response) => response.json())) as AmapGeocode | AmapError
+  const res = (await counter.request({
+    url: `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(address)}&output=JSON&Key=${encodeURIComponent(formData.amap.key)}`,
+    data: {},
+    timeout: 15,
+    responseType: 'json',
+  })) as AmapGeocode | AmapError
   if (res.status !== '1' || !('geocodes' in res)) {
     throw new Error(res.info)
   }
@@ -66,9 +70,12 @@ async function fetchDistance(
   type: number,
   key: string,
 ): Promise<AmapDistance | AmapError> {
-  return fetch(
-    `https://restapi.amap.com/v3/distance?origins=${origins}&destination=${destination}&type=${type}&output=JSON&Key=${key}`,
-  ).then((r) => r.json())
+  return counter.request({
+    url: `https://restapi.amap.com/v3/distance?origins=${encodeURIComponent(origins)}&destination=${encodeURIComponent(destination)}&type=${type}&output=JSON&Key=${encodeURIComponent(key)}`,
+    data: {},
+    timeout: 15,
+    responseType: 'json',
+  })
 }
 
 function extractResult(res: AmapDistance | AmapError) {

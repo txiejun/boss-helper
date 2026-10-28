@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-import { JobStatus } from '@/composables/useApplying/type'
-import { JobData, useHelper } from '@/composables/useHelper'
+import type { JobStatus } from '@/composables/useApplying/type'
+import type { JobData } from '@/composables/useHelper'
+import { useHelper } from '@/composables/useHelper'
 
 const helper = useHelper()
 

@@ -3,7 +3,7 @@ import { ref, toValue } from 'vue'
 
 const rootVue = ref()
 
-export async function getRootVue(): Promise<any> {
+export async function getBossPageRootVue(): Promise<any> {
   if (rootVue.value !== undefined) {
     return rootVue.value
   }

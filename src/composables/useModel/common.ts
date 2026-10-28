@@ -10,10 +10,10 @@ export interface other {
 export const other: LLMInfo<other>['other'] = {
   value: {
     timeout: {
-      value: 18000,
+      value: 60000,
       type: 'input',
       format: 'number',
-      desc: 'GPT请求的超时时间,超时后不会进行重试将跳过岗位,默认18000s / 30分钟',
+      desc: '请求超时（毫秒），默认 60000；旧配置按原有毫秒含义保留，不自动重试',
     },
     // background: {
     //   value: false,

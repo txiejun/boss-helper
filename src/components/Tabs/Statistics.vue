@@ -60,7 +60,7 @@ onMounted(() => {
   <div class="flex gap-2 flex-col">
     <Alert
       id="config-statistics"
-      description="数据并不完全准确，投递上限根据自身情况调整, 建议 120-140, boss限制最高150"
+      description="成功数量按新版台账中已确认的建立沟通统计，不代表附件发送或消息送达。配置额度不是平台安全额度；旧统计为历史口径。"
       color="warning"
       show-icon
     />

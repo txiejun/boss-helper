@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { DropdownMenuItem } from '@nuxt/ui'
+import type { DropdownMenuItem } from '@nuxt/ui'
 import type { ComponentPublicInstance } from 'vue'
 import { ref } from 'vue'
 

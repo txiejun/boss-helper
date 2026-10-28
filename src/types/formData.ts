@@ -1,6 +1,7 @@
 export interface Statistics {
   date: string
   success: number
+  messagesSubmitted?: number
   total: number
   repeat: number
   activityFilter: number

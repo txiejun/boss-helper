@@ -10,6 +10,14 @@ import { exportJson, importJson } from '@/utils/jsonImportExport'
 import CreateLLM from './LLMModelEdit.vue'
 
 const modelStore = useModel()
+async function clearKeys() {
+  for (const model of modelStore.modelData.value)
+    if (model.data) {
+      model.data.api_key = ''
+      model.data.advanced.extra_headers = {}
+    }
+  await modelStore.saveModel()
+}
 const createBoxShow = ref(false)
 const toast = useToast()
 const open = ref(false)
@@ -58,7 +66,13 @@ function close() {
 }
 
 function exportllm() {
-  exportJson(jsonClone(modelStore.modelData.value), 'Ai模型配置')
+  const data = jsonClone(modelStore.modelData.value)
+  for (const model of data)
+    if (model.data) {
+      model.data.api_key = ''
+      model.data.advanced.extra_headers = {}
+    }
+  exportJson(data, 'Ai模型配置（不含密钥）')
 }
 
 function importllm() {
@@ -129,6 +143,7 @@ function importllm() {
         <UButton color="neutral" variant="outline" @click="close"> 取消 </UButton>
         <UButton color="success" @click="exportllm"> 导出 </UButton>
         <UButton color="success" @click="importllm"> 导入 </UButton>
+        <UButton color="warning" @click="clearKeys">清除全部密钥</UButton>
         <UButton @click="newllm"> 新建 </UButton>
         <UButton @click="modelStore.saveModel"> 保存 </UButton>
       </div>

@@ -68,10 +68,12 @@ async function netNotification(
 }
 
 export async function initNetConf() {
-  const response = await fetch(
-    'https://testingcf.jsdelivr.net/gh/Ocyss/boss-helper@main/net-conf.json',
-  )
-  const data: NetConf = await response.json()
+  const data: NetConf = await counter.request({
+    url: 'https://testingcf.jsdelivr.net/gh/Ocyss/boss-helper@main/net-conf.json',
+    data: {},
+    timeout: 10,
+    responseType: 'json',
+  })
   const now = Date.now()
   for (const item of data.notification) {
     void netNotification(item, now)

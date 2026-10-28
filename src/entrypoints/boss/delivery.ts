@@ -1,8 +1,10 @@
 import { TaskRegistry, taskResult } from '@/composables/useApplying/handles'
 import { defineTaskHandler, defineTaskWorkflow } from '@/composables/useApplying/type'
+import { counter } from '@/message'
+import type { BossHelperCtx } from '@/platform/bossContext'
+import { pageCall } from '@/platform/bridge'
+import { blocksRepeat, uncertain } from '@/reliability/core'
 
-import type { BossHelperCtx } from '.'
-import { getBossData, sendPublishReq } from './requests'
 import type { BossZpJobItemData, BossZpDetailData, BossZpBossData } from './types'
 
 export type BoosJobData = {
@@ -17,7 +19,10 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   defineTaskHandler(
     '已沟通',
     async () => {
-      return async (_, { rawData }) => {
+      return async (ctx, { rawData, jobData }) => {
+        const existing = await counter.journal(ctx.helper.uid)
+        if (existing.some((a) => a.jobId === jobData.key && blocksRepeat(a)))
+          return taskResult.skip('已沟通或结果待核实')
         if (rawData.jobitem.contact) {
           return taskResult.skip('已沟通')
         }
@@ -72,32 +77,39 @@ export const bossWorkflow = defineTaskWorkflow<BossHelperCtx, BoosJobData>(
   tasks.amap({ deps: ['岗位详情获取'] }), // 高德地图
   tasks.aiFiltering({ deps: ['岗位详情获取'] }), // AI过滤
 
-  defineTaskHandler('岗位投递', () => async (_, { rawData }) => {
-    await sendPublishReq({
-      securityId: rawData.jobitem.securityId,
-      encryptJobId: rawData.jobitem.encryptJobId,
-    })
-    return {
-      status: 'success',
-      msg: '投递成功',
+  defineTaskHandler('岗位投递', () => async (ctx, data) => {
+    ctx.helper.assertActive()
+    const action = await ctx.helper.beginAction(data, 'contact')
+    try {
+      ctx.helper.assertActive()
+      await counter.actionUpdate(action.id, 'running')
+      ctx.helper.assertActive()
+      await pageCall('contact', {
+        account: ctx.helper.runAccount,
+        securityId: data.rawData.jobitem.securityId,
+        encryptJobId: data.rawData.jobitem.encryptJobId,
+      })
+      await counter.actionUpdate(action.id, 'confirmed')
+      await ctx.helper.refreshDeliveryStatistics()
+      return { status: 'success', msg: '已建立沟通（不代表附件已发送）' }
+    } catch (e) {
+      await counter
+        .actionUpdate(
+          action.id,
+          uncertain(e) || ctx.helper.signal.aborted ? 'uncertain' : 'failed',
+          errorHandle(e),
+        )
+        .catch(() => {})
+      throw e
     }
-  }), // 投递
-
+  }),
   defineTaskHandler('Boss信息获取', () => async (ctx, { rawData }) => {
-    // await sendPublishReq({
-    //   securityId: rawData.jobitem.securityId,
-    //   encryptJobId: rawData.jobitem.encryptJobId,
-    // })
-    ctx.log.info('获取Boss信息', {
+    ctx.helper.assertActive()
+    rawData.boss = await pageCall('boss', {
       securityId: rawData.jobitem.securityId,
-      encryptJobId: rawData.jobitem.encryptJobId,
+      encryptUserId: rawData.jobitem.encryptBossId,
     })
-    const bossData = await getBossData({
-      securityId: rawData.jobitem.securityId,
-      encryptUserId: ctx.helper.uid,
-    })
-    rawData.boss = bossData
-  }), // Boss信息获取
+  }),
 
   tasks.customGreeting({ deps: ['岗位详情获取', '岗位投递', 'Boss信息获取'] }), // 自定义招呼语
   tasks.aiGreeting({ deps: ['岗位详情获取', '岗位投递', 'Boss信息获取'] }), // AI招呼语

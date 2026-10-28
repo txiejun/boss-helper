@@ -158,6 +158,14 @@ export const useConf = () => {
   async function init() {
     isLoading.value = true
     try {
+      if (!(await counter.storageGet('local:reliability-v2-notice', false))) {
+        toast.add({
+          title: '已升级动作台账：旧版公司／HR历史保留但不再用于去重，待核实结果请在日志页处理',
+          color: 'warning',
+          duration: 15000,
+        })
+        await counter.storageSet('local:reliability-v2-notice', true)
+      }
       const rawFormDataPreset = await counter.storageGet(formDataPresetKey, 'default')
       const rawFormDataPresets = await counter.storageGet(formDataPresetsKey, [
         {

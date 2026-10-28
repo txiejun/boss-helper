@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai'
-import type { LanguageModelV3 } from '@ai-sdk/provider'
+import type { LanguageModel } from 'ai'
 
 import { desc, other } from './common'
 import type { LLMConf, LLMInfo } from './type'
@@ -59,7 +59,7 @@ const info: LLMInfo<OpenaiLLMConf> = {
     },
     required: true,
   },
-  api_key: { type: 'input', required: true },
+  api_key: { type: 'input', required: true, config: { type: 'password', autocomplete: 'off' } },
   model: {
     config: {
       placeholder: 'gpt-4o-mini',
@@ -176,7 +176,7 @@ const info: LLMInfo<OpenaiLLMConf> = {
   },
 }
 
-const createModel: (conf: OpenaiLLMConf) => LanguageModelV3 = (conf: OpenaiLLMConf) => {
+const createModel: (conf: OpenaiLLMConf) => LanguageModel = (conf: OpenaiLLMConf) => {
   const openai = createOpenAI({
     baseURL: conf.base_url,
     apiKey: conf.api_key,

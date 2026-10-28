@@ -217,7 +217,7 @@ export class PipelineCacheManager {
     const items = Object.values(data).sort((a, b) => a.lastAccessed - b.lastAccessed)
 
     for (let i = 0; i < evictCount; i++) {
-      delete data[items[i].encryptJobId]
+      if (items[i]) delete data[items[i]!.encryptJobId]
     }
 
     logger.info('LRU淘汰完成', { evicted: evictCount })

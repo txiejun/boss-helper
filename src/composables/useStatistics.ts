@@ -11,7 +11,7 @@ export const todayKey = 'local:web-geek-job-Today'
 export const statisticsKey = 'local:web-geek-job-Statistics'
 
 export const useStatistics = () => {
-  const date = getCurDay()
+  let date = getCurDay()
 
   const todayData = ref<Statistics>({
     date,
@@ -33,6 +33,10 @@ export const useStatistics = () => {
   )
 
   async function updateStatistics(curData = jsonClone(todayData.value)) {
+    date = getCurDay()
+    if (curData.date !== date)
+      curData = { date, success: 0, total: 0, repeat: 0, activityFilter: 0, tasks: {} }
+
     void counter.storageGet<Statistics[]>(statisticsKey, []).then((data) => {
       statisticsData.value = data
     })

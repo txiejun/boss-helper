@@ -56,10 +56,20 @@ export function animate({
 let delayLoadId: number | undefined
 
 // 延迟
-export async function delay(s: number, isStopped?: () => boolean) {
-  return new Promise<void>((resolve) => {
-    loader({ ms: s * 1000, isStopped, onDone: resolve })
-    setTimeout(resolve, s * 1000)
+export async function delay(s: number, isStopped: () => boolean = () => false) {
+  if (!Number.isFinite(s) || s < 0) throw new Error('等待时间无效')
+  await new Promise<void>((resolve) => {
+    const stopLoader = loader({ ms: s * 1000, isStopped })
+    const finish = () => {
+      clearTimeout(timer)
+      clearInterval(poll)
+      stopLoader()
+      resolve()
+    }
+    const timer = setTimeout(finish, s * 1000)
+    const poll = setInterval(() => {
+      if (isStopped()) finish()
+    }, 100)
   })
 }
 

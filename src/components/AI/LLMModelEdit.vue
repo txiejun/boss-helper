@@ -1,9 +1,8 @@
 <script lang="ts" setup>
-import { streamText } from 'ai'
 import { reactive, ref } from 'vue'
 
+import { streamModel, grantModelPermission } from '@/ai/client'
 import type { ModelConf } from '@/composables/useModel'
-import { openai } from '@/composables/useModel/openai'
 import type { OpenaiLLMConf } from '@/composables/useModel/openai'
 import { jsonClone } from '@/utils/deepmerge'
 import { logger } from '@/utils/logger'
@@ -96,27 +95,17 @@ async function test() {
   data.name = createName.value
   data.data = jsonClone(llmFormData) as ModelConf['data'] & {}
 
-  const model = openai.createModel(data.data)
-
   const span = logger.span('LLMTest')
   try {
-    const result = streamText({
-      model: model,
-      prompt: testIn.value,
-    })
+    await grantModelPermission(data.data!.base_url)
     testOut.value = ''
-    for await (const part of result.stream) {
-      span.info('TestResStream', part)
-      if (part.type === 'reasoning-start') {
-        testOut.value += '<思考过程>'
-      } else if (part.type === 'reasoning-end') {
-        testOut.value += '</思考过程>\n\n'
-      } else if (part.type === 'text-delta' || part.type === 'reasoning-delta') {
-        testOut.value += part.text
-      } else if (part.type === 'error') {
-        testOut.value += `\n\nerror: ${part.error}`
-      }
-    }
+    await streamModel(
+      { draft: data.data!, messages: [{ role: 'user', content: testIn.value }] },
+      (part) => {
+        if (part.type === 'text-delta' || part.type === 'reasoning-delta')
+          testOut.value += part.text
+      },
+    )
   } catch (err) {
     const errMsg = errorHandle(err)
     logger.error('TestAIModelError', err)

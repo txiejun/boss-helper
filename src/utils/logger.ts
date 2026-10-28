@@ -1,29 +1,36 @@
-import type { LogLevel } from 'devlog-ui'
-import { logger, LogPersistence } from 'devlog-ui'
+import { logger as raw } from 'devlog-ui'
 
-LogPersistence.enable({
-  storage: 'session', // 'session' (sessionStorage) or 'local' (localStorage)
-  maxPersisted: 500, // Max logs to persist
-  debounceMs: 100, // Debounce writes for performance
+import { sanitize } from '@/reliability/core'
+raw.configure({
+  maxLogs: 1000,
+  minLevel: 'warn',
+  enabled: true,
+  shortcutAction: 'toggle',
+  showToggleButton: true,
+  spanCollapsed: false,
 })
-
-let level: string = 'warn'
-
-if (
-  'localStorage' in window &&
-  typeof localStorage !== 'undefined' &&
-  typeof localStorage.getItem === 'function'
-) {
-  level = localStorage.getItem('__BH_LOG_LEVEL__') ?? level
+const logMethods = new Set(['debug', 'info', 'warn', 'error', 'log', 'table'])
+function wrap<T extends object>(target: T): T {
+  return new Proxy(target, {
+    get(t, key, receiver) {
+      const value = Reflect.get(t, key, receiver)
+      if (typeof value !== 'function') return value
+      if (logMethods.has(String(key)))
+        return (...args: unknown[]) =>
+          value.apply(
+            t,
+            args.map((a) => sanitize(a)),
+          )
+      if (key === 'withContext' || key === 'span')
+        return (...args: unknown[]) =>
+          wrap(
+            value.apply(
+              t,
+              args.map((a) => sanitize(a)),
+            ),
+          )
+      return value.bind(t)
+    },
+  })
 }
-
-logger.configure({
-  maxLogs: 1000, // Max logs in memory (FIFO rotation)
-  minLevel: level as LogLevel, // Minimum level: 'debug' | 'info' | 'warn' | 'error'
-  enabled: true, // Enable/disable logging
-  shortcutAction: 'toggle', // Ctrl+Shift+L: 'toggle' | 'popout'
-  showToggleButton: true, // Show the floating toggle button
-  spanCollapsed: false, // Collapse span groups by default
-})
-
-export { logger }
+export const logger = wrap(raw)

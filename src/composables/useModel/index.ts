@@ -1,7 +1,9 @@
 import { ref, toRaw } from 'vue'
 
+import { storage } from '#imports'
+import { grantModelPermission } from '@/ai/client'
 import { counter } from '@/message'
-import { logger } from '@/utils/logger'
+import { migrateModels } from '@/reliability/modelStorage'
 
 import type { OpenaiLLMConf } from './openai'
 import { openai } from './openai'
@@ -32,12 +34,13 @@ const modelData = ref<ModelConf[]>([])
 
 export const useModel = () => {
   async function init() {
-    const data = await counter.storageGet<ModelConf[]>(confModelKey, [])
-    logger.debug('ai模型数据', data)
+    const data = await migrateModels<ModelConf>(storage)
     modelData.value = data
   }
 
   async function save() {
+    for (const m of modelData.value)
+      if (m.data?.base_url && m.data.api_key) await grantModelPermission(m.data.base_url)
     await counter.storageSet(confModelKey, toRaw(modelData.value))
     toast.add({
       title: '保存成功',

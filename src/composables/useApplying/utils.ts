@@ -17,8 +17,8 @@ export function rangeMatch(rangeStr: string, form: FormDataRange): boolean {
   const m = String(rangeStr).match(re)
   if (!m) return false
 
-  let inputStart = Number.parseFloat(m[1])
-  let inputEnd = Number.parseFloat(m[2] != null ? m[2] : m[1])
+  let inputStart = Number.parseFloat(m[1]!)
+  let inputEnd = Number.parseFloat(m[2] != null ? m[2] : m[1]!)
   if (!Number.isFinite(inputStart) || !Number.isFinite(inputEnd)) return false
 
   if (inputStart > inputEnd) {
@@ -36,7 +36,7 @@ export function rangeMatch(rangeStr: string, form: FormDataRange): boolean {
   }
 }
 
-export function parseFiltering(content: string) {
+export function parseFiltering(content: string, strict = false) {
   interface Item {
     reason: string
     score: number
@@ -46,6 +46,21 @@ export function parseFiltering(content: string) {
     positive: Item[]
   }>(content)
 
+  if (
+    strict &&
+    (!res ||
+      !Array.isArray(res.negative) ||
+      !Array.isArray(res.positive) ||
+      [...res.negative, ...res.positive].some(
+        (item) =>
+          !item ||
+          typeof item.reason !== 'string' ||
+          typeof item.score !== 'number' ||
+          !Number.isFinite(item.score),
+      ))
+  ) {
+    throw new Error('AI 筛选结果格式无效，已跳过该岗位')
+  }
   const hand = (acc: { score: number; reason: string }, curr: Item) => ({
     score: acc.score + Math.abs(curr.score),
     reason: `${acc.reason}\n${curr.reason}/(${Math.abs(curr.score)}分)`,

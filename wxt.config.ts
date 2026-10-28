@@ -123,7 +123,10 @@ export default defineConfig({
         matches,
       },
     ],
+    // Preserve the original extension's Chrome "On all sites" access option.
+    // Content scripts still run only on zhipin.com (see their matches).
     host_permissions: ['http://*/*', 'https://*/*'],
+    optional_host_permissions: ['http://*/*', 'https://*/*'],
     key:
       browser === 'edge'
         ? undefined // 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq+hJAUmfZSTB6c7QOXiU6r1JUMLM3C/CDTVolB5pU/DAkO3Y3uVh/YWWaV8m2wIrLSjN7n1CZ+zmRlO+YpUq2vZRILq8WXFePCfHe8EqVY9mjj04BqqRuttHpJqMeXl1aVbKmICKj3cNEprGzJJvaAorz0NJxD82oLXf8CMIW0MHUjvwgmNc9HTD41glvX6CzW1r4qvwl4MSdZRPVf5dmhp+CWoaAcjqEpHbu+EZV5WpfQz9XCsmBXmMAFLyBtn62Xvy86c9PntIRw8xMikqmi8lVyOgT8oSM2U8EFyMsESoT2qCQXgUf0FMtKipoNs7xM7FtdOppNylHa6jJyYdRwIDAQAB'

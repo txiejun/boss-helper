@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import { InputMenuItem } from '@nuxt/ui'
+import type { InputMenuItem } from '@nuxt/ui'
 import { reactive } from 'vue'
 
 import LLMFormItem from '@/components/AI/LLMFormItem.vue'
-import { ModelConfData } from '@/composables/useModel'
+import type { ModelConfData } from '@/composables/useModel'
 import { openai } from '@/composables/useModel/openai'
 import type { LLMInfo } from '@/composables/useModel/type'
 
@@ -37,7 +37,8 @@ async function getIconGroups() {
     const match = name.match(/^(.+?)(?:-(color|text))?\.svg$/)
 
     if (match) {
-      const [_, baseName, type = 'default'] = match
+      const baseName = match[1]!
+      const type = match[2] ?? 'default'
       if (!result[baseName]) result[baseName] = {}
       result[baseName][type] = `${baseUrl}${name}`
     }
@@ -48,20 +49,22 @@ async function getIconGroups() {
 const iconGroups = ref<InputMenuItem[]>([])
 
 onMounted(() => {
-  getIconGroups().then((groups) => {
-    iconGroups.value = Object.entries(groups).map(([key, value]) => {
-      const avatar = value.color || value.default || ''
-      return {
-        label: key,
-        value: avatar,
-        avatar: {
-          src: avatar,
-          alt: key,
-          loading: 'lazy',
-        },
-      }
+  getIconGroups()
+    .then((groups) => {
+      iconGroups.value = Object.entries(groups).map(([key, value]) => {
+        const avatar = value.color || value.default || ''
+        return {
+          label: key,
+          value: avatar,
+          avatar: {
+            src: avatar,
+            alt: key,
+            loading: 'lazy',
+          },
+        }
+      })
     })
-  })
+    .catch(() => {})
 })
 </script>
 

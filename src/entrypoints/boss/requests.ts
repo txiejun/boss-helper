@@ -2,18 +2,16 @@
 
 import {
   GreetError,
-  BossHelperError,
   LimitError,
   PublishError,
   RateLimitError,
 } from '@/composables/useApplying/deliverError'
 import { calculateFileMD5 } from '@/utils/file'
-import { logger } from '@/utils/logger'
 
 import type { BossZpBossData, BossZpDetailData } from './types'
 
 // const { userInfo } = useStore()
-const toast = useToast()
+
 export const sameCompanyKey = 'local:sameCompany'
 export const sameHrKey = 'local:sameHr'
 
@@ -24,11 +22,7 @@ export async function getJobDetail(params: { securityId: string; lid: string }):
 }> {
   const token = window?.Cookie.get('bst')
   if (!token) {
-    toast.add({
-      title: '没有获取到token,请刷新重试',
-      color: 'error',
-    })
-    throw new PublishError('没有获取到token')
+    throw Object.assign(new PublishError('登录已失效，请重新登录'), { fatal: true })
   }
   const url = new URL('https://www.zhipin.com/wapi/zpgeek/job/detail.json')
   url.searchParams.set('securityId', params.securityId)
@@ -41,135 +35,114 @@ export async function getJobDetail(params: { securityId: string; lid: string }):
   }).then((r) => r.json())
 }
 
-export async function sendPublishReq(
-  data: { securityId: string; encryptJobId: string },
-  errorMsg?: string,
-  retries = 3,
-  _params = {},
-) {
-  if (retries === 0) {
-    throw new PublishError(errorMsg ?? '重试多次失败')
-  }
-  const url = new URL('https://www.zhipin.com/wapi/zpgeek/friend/add.json')
-  Object.entries({
-    securityId: data.securityId,
-    jobId: data.encryptJobId,
-    ..._params,
-  }).forEach(([key, value]) => url.searchParams.append(key, String(value)))
-
-  const token = window?.Cookie.get('bst')
-  if (!token) {
-    toast.add({
-      title: '没有获取到token,请刷新重试',
-      color: 'error',
-    })
-    throw new PublishError('没有获取到token')
-  }
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Zp_token: token },
-    }).then((r) => r.json())
-
-    res.code !== 0 && logger.error(`投递失败`, res)
-
-    if (res.code === 1) {
-      const content = String(
-        res?.zpData?.bizData?.chatRemindDialog?.content || res.message || '未知错误',
+let pageController = new AbortController()
+pageController.abort()
+export function beginPageOperations() {
+  pageController = new AbortController()
+}
+export function cancelPageOperations() {
+  pageController.abort()
+}
+export function assertPageActive() {
+  pageController.signal.throwIfAborted()
+}
+export function pageSignal() {
+  return pageController.signal
+}
+function classify(code: number, message: string) {
+  if (code === 0) return
+  if (/频繁|限流|稍后再试/.test(message))
+    throw Object.assign(new RateLimitError(message), { fatal: true })
+  if (/上限|限制|限额|今天已与|今日已与/.test(message))
+    throw Object.assign(new LimitError(message), { fatal: true })
+  throw Object.assign(new PublishError(message || `平台返回错误 ${code}`), { fatal: true })
+}
+async function pageFetch(
+  url: string | URL,
+  init: RequestInit = {},
+  readOnly = false,
+  allowCacheMiss = false,
+): Promise<any> {
+  const attempts = readOnly ? 3 : 1
+  for (let i = 0; i < attempts; i++) {
+    assertPageActive()
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.any([pageController.signal, AbortSignal.timeout(15000)]),
+      })
+      if (!response.ok)
+        throw Object.assign(new Error(`平台请求失败 HTTP ${response.status}`), {
+          fatal: true,
+          uncertain: !readOnly,
+        })
+      const result = await response.json()
+      if (typeof result?.code !== 'number')
+        throw Object.assign(new Error('平台响应格式异常'), { fatal: true, uncertain: !readOnly })
+      const message = String(
+        result?.zpData?.bizData?.chatRemindDialog?.content || result.message || '',
       )
-      // 命中限额弹窗 → 立刻发送确认请求
-      if (content.includes('您今天已与120位BOSS沟通')) {
-        try {
-          const url = new URL('https://www.zhipin.com/wapi/zpCommon/actionLog/geek/chatremind.json')
-          url.searchParams.set('ba', res.zpData.bizData.chatRemindDialog.ba)
-          url.searchParams.set('action', 'addf-limit-popup-c')
-          await fetch(url, {
-            method: 'POST',
-            headers: { Zp_token: token },
-          })
-
-          return sendPublishReq(data, undefined, retries, { cid: 1 })
-        } catch (e) {
-          logger.error('尝试确认投递限制失败', e)
-          throw new PublishError(`投递限制确认失败]${content}`)
+      if (!allowCacheMiss || /频繁|限流|限制|上限|限额|登录|验证|权限/.test(message))
+        classify(result.code, message)
+      return result
+    } catch (e) {
+      if ((e as any)?.fatal) throw e
+      if (!readOnly)
+        throw Object.assign(new Error('操作结果不确定，请核实平台状态；未自动重试'), {
+          fatal: true,
+          uncertain: true,
+        })
+      if (pageController.signal.aborted) throw e
+      if (i === attempts - 1) throw e
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer)
+          reject(pageController.signal.reason)
         }
-      } else if (content.includes('您今天已与150位BOSS沟通')) {
-        throw new LimitError(content)
-      } else if (content.includes('操作过于频繁')) {
-        throw new RateLimitError(content)
-      }
-
-      throw new PublishError(content)
-    } else if (res.code !== 0) {
-      throw new PublishError(`未知错误状态:${res.message}`)
+        const timer = setTimeout(
+          () => {
+            pageController.signal.removeEventListener('abort', onAbort)
+            resolve()
+          },
+          500 * 2 ** i,
+        )
+        pageController.signal.addEventListener('abort', onAbort, { once: true })
+      })
     }
-    return res
-  } catch (e: any) {
-    if (e instanceof BossHelperError) {
-      throw e
-    }
-    return sendPublishReq(data, e?.message as string, retries - 1)
   }
 }
+export async function sendPublishReq(data: { securityId: string; encryptJobId: string }) {
+  assertPageActive()
+  const token = window.Cookie?.get('bst')
+  if (!token) throw Object.assign(new PublishError('登录已失效，请重新登录'), { fatal: true })
+  const url = new URL('https://www.zhipin.com/wapi/zpgeek/friend/add.json')
+  url.searchParams.set('securityId', data.securityId)
+  url.searchParams.set('jobId', data.encryptJobId)
+  return pageFetch(url, { method: 'POST', headers: { Zp_token: token } })
+}
 
-export async function getBossData(
-  job: { encryptUserId: string; securityId: string },
-  errorMsg?: string,
-  retries = 3,
-): Promise<BossZpBossData> {
-  if (retries === 0) {
-    throw new GreetError(errorMsg ?? '重试多次失败')
-  }
-  const url = 'https://www.zhipin.com/wapi/zpchat/geek/getBossData'
-  // userInfo.value?.token 不相等！
-  const token = window?.Cookie.get('bst')
-  if (!token) {
-    toast.add({
-      title: '没有获取到token,请刷新重试',
-      color: 'error',
-    })
-    throw new GreetError('没有获取到token')
-  }
-  try {
-    const body = new FormData()
-    body.append('bossId', job.encryptUserId)
-    body.append('securityId', job.securityId)
-    body.append('bossSrc', '0')
-
-    const res: {
-      code: number
-      message: string
-      zpData: BossZpBossData
-    } = await fetch(url, {
-      body: body,
-      method: 'POST',
-      headers: { Zp_token: token },
-    }).then((r) => r.json())
-
-    if (res.code !== 0) {
-      if (res.message === '非好友关系') {
-        return await getBossData(job, '非好友关系', retries - 1)
-      }
-      throw new GreetError(`状态错误:${res.message}`)
-    }
-    return res.zpData
-  } catch (e: any) {
-    if (e instanceof GreetError) {
-      throw e
-    }
-    return getBossData(job, e?.message as string, retries - 1)
-  }
+export async function getBossData(job: {
+  encryptUserId: string
+  securityId: string
+}): Promise<BossZpBossData> {
+  const token = window.Cookie?.get('bst')
+  if (!token) throw Object.assign(new GreetError('登录已失效，请重新登录'), { fatal: true })
+  const body = new FormData()
+  body.append('bossId', job.encryptUserId)
+  body.append('securityId', job.securityId)
+  body.append('bossSrc', '0')
+  const result = await pageFetch(
+    'https://www.zhipin.com/wapi/zpchat/geek/getBossData',
+    { method: 'POST', headers: { Zp_token: token }, body },
+    true,
+  )
+  return result.zpData
 }
 
 export async function uploadImage(securityId: string, file: File) {
-  const toast = useToast()
   const token = window?.Cookie.get('bst')
   if (!token) {
-    toast.add({
-      title: '没有获取到token,请刷新重试',
-      color: 'error',
-    })
-    throw new Error('没有获取到token')
+    throw Object.assign(new Error('登录已失效，请重新登录'), { fatal: true })
   }
 
   const params = new URLSearchParams()
@@ -210,14 +183,20 @@ export async function uploadImage(securityId: string, file: File) {
       flagKey: any
       fileName: any
     }
-  } = await fetch('https://www.zhipin.com/wapi/zpupload/quicklyUpload', {
-    headers: {
-      zp_token: token,
+  } = await pageFetch(
+    'https://www.zhipin.com/wapi/zpupload/quicklyUpload',
+    {
+      headers: {
+        zp_token: token,
+      },
+      referrer: 'https://www.zhipin.com/web/geek/chat',
+      body: params,
+      method: 'POST',
     },
-    referrer: 'https://www.zhipin.com/web/geek/chat',
-    body: params,
-    method: 'POST',
-  }).then((res) => res.json())
+    true,
+    true,
+  )
+  assertPageActive()
   if (quickRes.code === 0 && quickRes.zpData && quickRes.zpData.url) {
     return {
       tinyImage: {
@@ -232,6 +211,7 @@ export async function uploadImage(securityId: string, file: File) {
       },
     }
   }
+  assertPageActive()
   const body = new FormData()
   body.append('securityId', securityId)
 
@@ -270,14 +250,14 @@ export async function uploadImage(securityId: string, file: File) {
       flagKey: any
       fileName: any
     }
-  } = await fetch('https://www.zhipin.com/wapi/zpupload/image/uploadSingle', {
+  } = await pageFetch('https://www.zhipin.com/wapi/zpupload/image/uploadSingle', {
     headers: {
       zp_token: token,
     },
     referrer: 'https://www.zhipin.com/web/geek/chat',
     body: body,
     method: 'POST',
-  }).then((res) => res.json())
+  })
   if (res.code !== 0) {
     throw new Error('上传图片失败:' + res.message)
   }

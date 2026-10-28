@@ -1,10 +1,11 @@
+import { counter } from '@/message'
+import { blocksRepeat } from '@/reliability/core'
 import { renderTemplate } from '@/utils/ai'
 import type { HelperContext } from '~/composables/useHelper'
 
-import { sameCompanyKey, sameHrKey } from '../../entrypoints/boss/requests'
 import type { JobStatus, TaskContext, TaskResult } from './type'
 import { defineTaskHandler } from './type'
-import { loadSet, parseFiltering, rangeMatch, rangeMatchFormat, saveSet } from './utils'
+import { parseFiltering, rangeMatch, rangeMatchFormat } from './utils'
 
 export class DependencyMissingError extends Error {
   constructor(public taskId: string) {
@@ -12,11 +13,13 @@ export class DependencyMissingError extends Error {
   }
 }
 
-export class HelperConfigError {
+export class HelperConfigError extends Error {
   constructor(
     public key: string,
-    public message?: string,
-  ) {}
+    message?: string,
+  ) {
+    super(message ?? key)
+  }
 }
 
 // function chatBossMessage(_ctx: LogData, _msg: string) {
@@ -67,85 +70,41 @@ export const taskResult = {
 }
 
 export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
-  SameCompanyFilter = defineTaskHandler<C, T, S>(
-    '重复沟通-相同公司',
-    async (ctx) => {
-      if (!ctx.helper.conf.formData.sameCompanyFilter.value) {
-        return
-      }
-      const someSet = await loadSet(sameCompanyKey, ctx.helper.uid)
-      return {
-        fn: async (_, { jobData: data }) => {
-          if (someSet.has(data.key)) {
-            ctx.helper.statistics.todayData.value.repeat++
-            return taskResult.skip('相同公司已投递')
+  private duplicateFilter(kind: 'company' | 'hr') {
+    return defineTaskHandler<C, T, S>(
+      `重复沟通-相同${kind}`,
+      (ctx) => {
+        const conf =
+          kind === 'company'
+            ? ctx.helper.conf.formData.sameCompanyFilter
+            : ctx.helper.conf.formData.sameHrFilter
+        if (!conf.value) return
+        return async (_, { jobData }) => {
+          const id = kind === 'company' ? jobData.companyId : jobData.hrId
+          if (!id) {
+            ctx.log.warn('去重标识缺失', kind)
+            return
           }
-        },
-        after: [
-          async (ctx, { jobData: data }) => {
-            someSet.set(data.key, Date.now())
-            if (ctx.index % 3 === 0) {
-              await saveSet(
-                sameCompanyKey,
-                ctx.helper.uid,
-                someSet,
-                ctx.helper.conf.formData.sameCompanyFilter.expire,
-              )
-            }
-          },
-        ],
-        onEnd: async (ctx) => {
-          await saveSet(
-            sameCompanyKey,
-            ctx.helper.uid,
-            someSet,
-            ctx.helper.conf.formData.sameCompanyFilter.expire,
+          const records = await counter.journal(ctx.helper.uid)
+          const found = records.some(
+            (a) =>
+              blocksRepeat(a) &&
+              (kind === 'company' ? a.companyId : a.hrId) === id &&
+              ((conf.expire ?? 0) === 0 || Date.now() - a.createdAt < conf.expire!),
           )
-        },
-      }
-    },
-    { label: '相同公司' },
-  )
-
-  SameHrFilter = defineTaskHandler<C, T, S>(
-    '重复沟通-相同HR',
-    async (ctx) => {
-      if (!ctx.helper.conf.formData.sameHrFilter.value) {
-        return
-      }
-      const someSet = await loadSet(sameHrKey, ctx.helper.uid)
-      return {
-        fn: async (_, { jobData: data }) => {
-          if (data.key != null && someSet.has(data.key)) {
+          if (found) {
             ctx.helper.statistics.todayData.value.repeat++
-            return taskResult.skip('相同hr已投递')
+            return taskResult.skip(
+              kind === 'company' ? '相同公司已沟通或结果待核实' : '相同 HR 已沟通或结果待核实',
+            )
           }
-        },
-        after: [
-          async (ctx, { jobData: data }) => {
-            someSet.set(data.key, Date.now())
-            if (ctx.index % 3 === 0) {
-              await saveSet(
-                sameHrKey,
-                ctx.helper.uid,
-                someSet,
-                ctx.helper.conf.formData.sameHrFilter.expire,
-              )
-            }
-          },
-        ],
-        onEnd: async (ctx) => {
-          await saveSet(
-            sameHrKey,
-            ctx.helper.uid,
-            someSet,
-            ctx.helper.conf.formData.sameHrFilter.expire,
-          )
-        },
-      }
-    },
-    { label: '相同HR' },
-  )
+        }
+      },
+      { label: kind === 'company' ? '相同公司' : '相同HR' },
+    )
+  }
+  SameCompanyFilter = this.duplicateFilter('company')
+  SameHrFilter = this.duplicateFilter('hr')
 
   jobTitle = defineTaskHandler<C, T, S>('岗位名', (ctx) => {
     if (!ctx.helper.conf.formData.jobTitle.enable) {
@@ -336,7 +295,7 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
       }
       return async (ctx, data) => {
         const content = await ctx.helper.chatModel.chat('filtering', data).then((r) => r.text)
-        const { message, rating } = parseFiltering(content)
+        const { message, rating } = parseFiltering(content, true)
         if (rating < (ctx.helper.conf.formData.aiFiltering.score ?? 10)) {
           return taskResult.skip(message)
         }
@@ -377,7 +336,10 @@ export class TaskRegistry<C extends HelperContext<C, T, S>, T, S = {}> {
   customGreeting = defineTaskHandler<C, T, S>(
     '打招呼',
     (ctx) => {
-      if (!ctx.helper.conf.formData.customGreeting.enable) {
+      if (
+        !ctx.helper.conf.formData.customGreeting.enable ||
+        ctx.helper.conf.formData.aiGreeting.enable
+      ) {
         return
       }
       return async (ctx, data) => {

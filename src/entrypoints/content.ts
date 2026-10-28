@@ -1,35 +1,25 @@
-import { defineProxy } from 'comctx'
-
 import { defineContentScript, injectScript } from '#imports'
+import { initCounter } from '@/message'
+import { startIsolatedApp } from '@/platform/bossContext'
 
 import './boss/inject.css'
-import type { BackgroundCounter } from '@/message/background'
-import { InjectBackgroundAdapter } from '@/message/background'
-import { ContentCounter } from '@/message/contentScript'
-import { ProvideContentScriptAdapter } from '@/message/contentScriptShare'
-
 export default defineContentScript({
   matches: ['*://zhipin.com/*', '*://*.zhipin.com/*'],
-  runAt: 'document_start',
+  runAt: 'document_idle',
   world: 'ISOLATED',
   async main() {
-    const [, injectBackgroundCounter] = defineProxy(() => ({}) as BackgroundCounter, {
-      namespace: '__boss-helper-background__',
-    })
-
-    const [provideContentCounter] = defineProxy(
-      () => new ContentCounter(injectBackgroundCounter(new InjectBackgroundAdapter())),
-      {
-        namespace: '__boss-helper-content__',
-        heartbeatTimeout: 3000,
-      },
-    )
-
-    await injectScript('/boss.js', {
-      keepInDom: true,
-      modifyScript(script) {
-        provideContentCounter(new ProvideContentScriptAdapter(script))
-      },
-    })
+    initCounter()
+    await injectScript('/boss.js', { keepInDom: true })
+    // The adapter installs its listener after locating the BOSS Vue root.
+    let last: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await startIsolatedApp()
+        return
+      } catch (e) {
+        last = e
+      }
+    }
+    console.error('BossHelper 初始化失败', last instanceof Error ? last.stack : '页面适配失败')
   },
 })
