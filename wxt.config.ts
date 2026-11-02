@@ -88,8 +88,10 @@ export default defineConfig({
           modal: {
             slots: {
               overlay: 'z-200',
-              content: 'z-220',
-              footer: 'justify-end',
+              content: 'z-220 min-h-0 max-h-[calc(100dvh-2rem)]',
+              header: 'shrink-0 p-4 sm:p-5',
+              body: 'min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5',
+              footer: 'shrink-0 flex-wrap justify-end p-4 sm:p-5',
             },
           },
           chatMessage: {
@@ -103,7 +105,11 @@ export default defineConfig({
           },
           slideover: {
             slots: {
-              content: 'z-230',
+              overlay: 'z-250',
+              content: 'z-260 min-h-0',
+              header: 'shrink-0',
+              body: 'min-h-0 overflow-y-auto overscroll-contain',
+              footer: 'shrink-0 flex-wrap',
             },
           },
         },

@@ -133,22 +133,28 @@ function create() {
   <UModal
     v-model:open="show"
     :title="props.model ? '编辑AI模型' : '创建AI模型'"
-    :ui="{ content: 'sm:max-w-[70%]' }"
+    :ui="{ overlay: 'z-230', content: 'z-240 w-[calc(100vw-2rem)] max-w-4xl' }"
     :dismissible="false"
   >
     <template #body>
-      <div class="overflow-y-auto" style="max-height: 60vh; padding: 20px">
-        <UFormField :ui="{ root: 'flex max-sm:flex-col justify-between gap-4 items-center' }">
+      <div class="space-y-5">
+        <UFormField
+          :ui="{
+            root: 'grid grid-cols-1 gap-2 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-center',
+            container: 'w-full min-w-0',
+          }"
+        >
           <template #label>
             <span :style="{ background: createColor }" class="size-2"></span>
             <span>名称</span></template
           >
-          <UInput v-model="createName" />
+          <UInput v-model="createName" class="w-full" placeholder="为模型设置一个名称" />
         </UFormField>
         <UTheme
           :ui="{
             formField: {
-              root: 'flex max-sm:flex-col justify-between gap-4 items-center',
+              root: 'grid grid-cols-1 gap-2 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-center',
+              container: 'w-full min-w-0',
             },
           }"
         >
@@ -189,11 +195,11 @@ function create() {
   <USlideover
     v-model:open="testShow"
     title="模型测试"
-    :ui="{ content: 'max-w-lg' }"
+    :ui="{ content: 'w-full max-w-4xl' }"
     :dismissible="false"
   >
     <template #body>
-      <UFieldGroup class="mb-4">
+      <UFieldGroup class="mb-4 flex-wrap">
         <template v-for="(example, key) in testExample" :key="key">
           <UButton
             v-for="(item, index) in example"
@@ -209,9 +215,18 @@ function create() {
           </UButton>
         </template>
       </UFieldGroup>
-      <div class="grid grid-cols-2 gap-3">
-        <UTextarea v-model="testIn" :rows="9" placeholder="输入提示词" />
-        <UTextarea :model-value="testOut" :rows="9" placeholder="GPT响应" />
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <UFormField label="输入提示词" orientation="vertical"
+          ><UTextarea v-model="testIn" :rows="12" class="w-full" placeholder="输入提示词"
+        /></UFormField>
+        <UFormField label="模型响应" orientation="vertical"
+          ><UTextarea
+            :model-value="testOut"
+            :rows="12"
+            class="w-full"
+            readonly
+            placeholder="测试结果将显示在这里"
+        /></UFormField>
       </div>
     </template>
 

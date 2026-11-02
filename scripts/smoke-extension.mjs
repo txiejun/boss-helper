@@ -143,10 +143,103 @@ try {
   const target = await call('Target.createTarget', { url: `chrome-extension://${id}/options.html` })
   options = await attach(target.targetId)
   await eventually(
-    () => evaluate(options, `document.body.innerText.includes('管理模型与密钥')`),
+    () => evaluate(options, `document.body.innerText.includes('模型与密钥')`),
     'extension options renders',
   )
   const manifest = await evaluate(options, `chrome.runtime.getManifest()`)
+  assert.equal(manifest.options_ui.open_in_tab, true, 'settings opens in a full tab')
+  // Exercise the real extension UI at desktop, short-window and mobile sizes.
+  for (const [width, height] of [
+    [1440, 900],
+    [988, 700],
+    [800, 480],
+    [390, 720],
+  ]) {
+    await call(
+      'Emulation.setDeviceMetricsOverride',
+      { width, height, deviceScaleFactor: 1, mobile: false },
+      options,
+    )
+    await evaluate(
+      options,
+      `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='新建模型').click()`,
+    )
+    await eventually(
+      () => evaluate(options, `!!document.querySelector('[role="dialog"] input')`),
+      'model editor opens',
+    )
+    await sleep(350)
+    const editor = await evaluate(
+      options,
+      `(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const rect = dialog.getBoundingClientRect();
+      const body = dialog.querySelector('[data-slot="body"]');
+      const footer = dialog.querySelector('[data-slot="footer"]');
+      const first = dialog.querySelector('input').getBoundingClientRect();
+      const visible = r => r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1;
+      const before = body.scrollTop;
+      body.scrollTop = body.scrollHeight;
+      return { visible: visible(rect), footerVisible: visible(footer.getBoundingClientRect()),
+        bodyHeight: body.clientHeight, firstWidth: first.width,
+        scrollable: body.scrollHeight <= body.clientHeight || body.scrollTop > before,
+        overflow: dialog.scrollWidth > dialog.clientWidth + 1 };
+    })()`,
+    )
+    assert.ok(
+      editor.visible && editor.footerVisible,
+      `editor and actions fit ${width}x${height}: ${JSON.stringify(editor)}`,
+    )
+    assert.ok(
+      editor.bodyHeight >= Math.min(240, height * 0.45),
+      `usable form height: ${JSON.stringify(editor)}`,
+    )
+    assert.ok(
+      editor.firstWidth > 140 && editor.scrollable && !editor.overflow,
+      `form fits and scrolls: ${JSON.stringify(editor)}`,
+    )
+    await evaluate(
+      options,
+      `[...document.querySelector('[role="dialog"]').querySelectorAll('button')].find(b=>b.textContent.trim()==='测试').click()`,
+    )
+    await eventually(
+      () => evaluate(options, `document.querySelectorAll('[role="dialog"]').length === 2`),
+      'nested model test opens',
+    )
+    await sleep(350)
+    const nested = await evaluate(
+      options,
+      `(() => {
+      const dialogs = [...document.querySelectorAll('[role="dialog"]')];
+      const test = dialogs.at(-1), editor = dialogs[0], r = test.getBoundingClientRect();
+      const footer = test.querySelector('[data-slot="footer"]').getBoundingClientRect();
+      return { visible: r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1,
+        footerVisible: footer.bottom <= innerHeight + 1, width: r.width,
+        above: +getComputedStyle(test).zIndex > +getComputedStyle(editor).zIndex,
+        inputWidth: test.querySelector('textarea').getBoundingClientRect().width };
+    })()`,
+    )
+    assert.ok(
+      nested.visible && nested.footerVisible && nested.above && nested.inputWidth > 140,
+      `nested test fits ${width}x${height}: ${JSON.stringify(nested)}`,
+    )
+    await evaluate(
+      options,
+      `[...document.querySelectorAll('[role="dialog"]')].at(-1).querySelector('[data-slot="footer"] button').click()`,
+    )
+    await eventually(
+      () => evaluate(options, `document.querySelectorAll('[role="dialog"]').length === 1`),
+      'nested test closes',
+    )
+    await evaluate(
+      options,
+      `[...document.querySelector('[role="dialog"]').querySelectorAll('button')].find(b=>b.textContent.trim()==='取消').click()`,
+    )
+    await eventually(
+      () => evaluate(options, `!document.querySelector('[role="dialog"]')`),
+      'editor closes',
+    )
+  }
   assert.ok(
     manifest.host_permissions.includes('https://*/*'),
     'Chrome all-sites access is available',
@@ -202,7 +295,8 @@ try {
       {
         passed: true,
         checks: [
-          'extension-owned settings renders',
+          'extension-owned settings renders in a full tab',
+          'model editor and nested test fit desktop, short and mobile viewports',
           'isolated BOSS UI renders',
           'delayed job component renders despite an earlier layout wrapper',
           'all-sites permission declared; content scripts restricted to BOSS',

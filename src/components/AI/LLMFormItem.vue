@@ -29,7 +29,7 @@ const isSetVal = ref(fromVal.value !== undefined)
       :description="info.desc"
       :color="info.alert"
       variant="subtle"
-      class="mb-4 relative left-1/2 -translate-x-1/2 w-[102%]"
+      class="mb-4 w-full"
     />
     <div class="space-y-3">
       <LLMFormItem
@@ -47,7 +47,10 @@ const isSetVal = ref(fromVal.value !== undefined)
     v-else
     :required="info.required"
     class="w-full"
-    :ui="{ container: 'flex flex-row gap-2 flex-1 *:w-full max-w-3/5' }"
+    :ui="{
+      container:
+        'flex min-w-0 w-full items-center gap-2 [&>*:last-child]:min-w-0 [&>*:last-child]:flex-1',
+    }"
   >
     <template #label>
       <span :title="info.desc" class="inline-flex items-center text-center gap-2">
@@ -96,7 +99,7 @@ const isSetVal = ref(fromVal.value !== undefined)
         v-else-if="info.type === 'slider'"
         v-model="fromVal"
         v-bind="info.config"
-        :ui="{ root: 'w-1/2 min-w-50' }"
+        :ui="{ root: 'w-full min-w-0' }"
       ></USlider>
       <USwitch v-else-if="info.type === 'switch'" v-model="fromVal" v-bind="info.config"></USwitch>
       <div v-else>Unsupported form element {{ info }}</div>

@@ -351,7 +351,7 @@ export async function useDeliveryWorkflow<C extends HelperContext<C, T, S>, T, S
       if (!skipPipeline && !isStop()) {
         helper.jobResultMaps.set(data.jobData.key, {
           status: 'success',
-          msg: '沟通流程已执行，请查看动作台账',
+          msg: '已沟通',
         })
         await helper.refreshDeliveryStatistics()
       } else if (!errorLog) {

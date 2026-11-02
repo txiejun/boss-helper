@@ -276,7 +276,7 @@ const testModelRef = useTemplateRef('testModel')
   <UModal
     v-model:open="show"
     :title="formInfoData[data].label"
-    :ui="{ content: 'sm:max-w-[70%]', body: 'flex flex-col gap-4' }"
+    :ui="{ content: 'w-[calc(100vw-2rem)] max-w-5xl', body: 'flex flex-col gap-4' }"
     :dismissible="false"
   >
     <template #body>
@@ -285,12 +285,12 @@ const testModelRef = useTemplateRef('testModel')
           <UInputNumber v-model="score" :min="-100" :max="100" size="sm" placeholder="请输入分数" />
         </UFormField>
       </div>
-      <div class="w-full flex items-center justify-between" ref="promptModel">
-        <div class="flex gap-2">
+      <div class="w-full flex flex-wrap items-center justify-between gap-3" ref="promptModel">
+        <div class="flex flex-wrap gap-2">
           <UButton color="neutral"> 多对话模式 </UButton>
           <UButton color="primary" @click="addMessage"> 添加消息 </UButton>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <UButton color="info" @click="inputExample"> 填入示例值 </UButton>
           <USelectMenu
             v-model="currentModel"
@@ -371,9 +371,9 @@ const testModelRef = useTemplateRef('testModel')
       <UButton color="primary" @click="savePrompt"> 保存 </UButton>
     </template>
   </UModal>
-  <USlideover v-model:open="testDialog" title="Prompt 测试" :ui="{ content: 'max-w-lg' }">
+  <USlideover v-model:open="testDialog" title="Prompt 测试" :ui="{ content: 'w-full max-w-4xl' }">
     <template #body>
-      <div class="flex gap-2 mb-4" ref="testModel">
+      <div class="flex flex-wrap gap-2 mb-4" ref="testModel">
         <UButton :loading="testJobLoading" @click="addTestJob(1)" color="neutral">
           从页面添加1个岗位
         </UButton>
